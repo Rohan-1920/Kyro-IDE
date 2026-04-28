@@ -8,6 +8,13 @@ export class ValidationError extends Error {
   }
 }
 
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
 export async function parseJsonBody<T = unknown>(request: Request): Promise<T> {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {

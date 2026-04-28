@@ -11,8 +11,15 @@ model User {
   id        String    @id @default(cuid())
   email     String    @unique
   name      String
+  passwordHash String
   createdAt DateTime  @default(now())
   projects  Project[]
+  userSetting UserSetting?
+  workspaceSettings WorkspaceSetting[]
+  projectExtensions ProjectExtension[]
+  gitIntegrations GitIntegration[]
+  gitSyncJobs GitSyncJob[]
+  auditLogs AuditLog[]
 }
 
 model Project {
@@ -26,6 +33,14 @@ model Project {
   files       ProjectFile[]
   chats       ChatMessage[]
   terminals   TerminalExecution[]
+  terminalSessions TerminalSession[]
+  folders     Folder[]
+  tabStates   OpenTabs[]
+  versions    FileVersion[]
+  gitIntegrations GitIntegration[]
+  gitSyncJobs GitSyncJob[]
+  projectExtensions ProjectExtension[]
+  workspaceSettings WorkspaceSetting[]
 }
 
 model ProjectFile {
@@ -38,8 +53,44 @@ model ProjectFile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions  FileVersion[]
 
   @@unique([projectId, path])
+}
+
+model Folder {
+  id             String   @id @default(cuid())
+  projectId       String
+  parentFolderId  String?
+  path            String
+  name            String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, path])
+}
+
+model OpenTabs {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  filePaths String[]
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model FileVersion {
+  id        String   @id @default(cuid())
+  projectId String
+  fileId    String
+  content   String   @db.Text
+  source    String
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file      ProjectFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
 }
 
 model ChatMessage {
@@ -53,10 +104,114 @@ model ChatMessage {
 
 model TerminalExecution {
   id         String   @id @default(cuid())
+  sessionId  String
+  userId     String
   projectId  String
   command    String
   output     String   @db.Text
+  eventType  String
+  sequence   Int
   status     String
   executedAt DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session    TerminalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, userId, sessionId, sequence])
+}
+
+model TerminalSession {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events    TerminalExecution[]
+
+  @@unique([projectId, userId, title])
+}
+
+model GitIntegration {
+  id                String   @id @default(cuid())
+  projectId          String
+  userId             String
+  provider           String
+  accountLogin       String
+  accessTokenMasked  String
+  repoOwner          String?
+  repoName           String?
+  defaultBranch      String?
+  connectedAt        DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  project            Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user               User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId, provider])
+}
+
+model GitSyncJob {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  type      String
+  status    String
+  summary   String
+  createdAt DateTime @default(now())
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ExtensionRegistry {
+  id          String   @id
+  name        String
+  publisher   String
+  version     String
+  description String
+}
+
+model ProjectExtension {
+  id          String   @id @default(cuid())
+  projectId   String
+  userId      String
+  extensionId String
+  enabled     Boolean  @default(true)
+  config      Json
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId, extensionId])
+}
+
+model UserSetting {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  editor    Json
+  updatedAt DateTime @updatedAt
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WorkspaceSetting {
+  id              String   @id @default(cuid())
+  projectId       String
+  userId          String
+  editorOverrides Json
+  updatedAt       DateTime @updatedAt
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String
+  action       String
+  resourceType String
+  resourceId   String
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

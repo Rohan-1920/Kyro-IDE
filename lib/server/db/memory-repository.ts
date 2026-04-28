@@ -10,6 +10,30 @@ import { generateId } from "@/lib/server/utils/id";
 const now = () => new Date().toISOString();
 
 export const memoryRepository: BackendRepository = {
+  async createUser(input) {
+    const db = getDB();
+    const user = {
+      id: generateId("user"),
+      email: input.email.trim().toLowerCase(),
+      name: input.name.trim(),
+      passwordHash: input.passwordHash,
+      createdAt: now()
+    };
+    db.users.set(user.id, user);
+    return user;
+  },
+
+  async findUserByEmail(email: string) {
+    const db = getDB();
+    const normalized = email.trim().toLowerCase();
+    return [...db.users.values()].find((u) => u.email === normalized) ?? null;
+  },
+
+  async findUserById(userId: string) {
+    const db = getDB();
+    return db.users.get(userId) ?? null;
+  },
+
   async listProjects(userId: string) {
     const db = getDB();
     return [...db.projects.values()].filter((p) => p.userId === userId);
@@ -64,6 +88,27 @@ export const memoryRepository: BackendRepository = {
     return file;
   },
 
+  async createFileVersion(input) {
+    const db = getDB();
+    const version = {
+      id: generateId("ver"),
+      projectId: input.projectId,
+      fileId: input.fileId,
+      content: input.content,
+      source: input.source,
+      createdAt: now()
+    };
+    const list = db.fileVersions.get(input.fileId) ?? [];
+    list.push(version);
+    db.fileVersions.set(input.fileId, list);
+    return version;
+  },
+
+  async listFileVersions(projectId: string, fileId: string) {
+    const db = getDB();
+    return (db.fileVersions.get(fileId) ?? []).filter((v) => v.projectId === projectId);
+  },
+
   async updateProjectFile(projectId: string, fileId: string, updates: UpdateFileInput) {
     const db = getDB();
     const current = db.files.get(fileId);
@@ -84,7 +129,90 @@ export const memoryRepository: BackendRepository = {
     const current = db.files.get(fileId);
     if (!current || current.projectId !== projectId) return false;
     db.files.delete(fileId);
+    db.fileVersions.delete(fileId);
     return true;
+  },
+
+  async listProjectFolders(projectId: string) {
+    const db = getDB();
+    return [...db.folders.values()].filter((f) => f.projectId === projectId);
+  },
+
+  async createFolder(input) {
+    const db = getDB();
+    const createdAt = now();
+    const folder = {
+      id: generateId("folder"),
+      projectId: input.projectId,
+      parentFolderId: input.parentFolderId ?? null,
+      path: input.path.trim(),
+      name: input.name.trim(),
+      createdAt,
+      updatedAt: createdAt
+    };
+    db.folders.set(folder.id, folder);
+    return folder;
+  },
+
+  async updateFolder(projectId: string, folderId: string, updates) {
+    const db = getDB();
+    const current = db.folders.get(folderId);
+    if (!current || current.projectId !== projectId) return null;
+    const next = {
+      ...current,
+      ...(updates.path !== undefined ? { path: updates.path.trim() } : {}),
+      ...(updates.name !== undefined ? { name: updates.name.trim() } : {}),
+      ...(updates.parentFolderId !== undefined ? { parentFolderId: updates.parentFolderId } : {}),
+      updatedAt: now()
+    };
+    db.folders.set(folderId, next);
+    return next;
+  },
+
+  async deleteFolder(projectId: string, folderId: string) {
+    const db = getDB();
+    const current = db.folders.get(folderId);
+    if (!current || current.projectId !== projectId) return false;
+    const hasChildFolder = [...db.folders.values()].some(
+      (folder) => folder.projectId === projectId && folder.parentFolderId === folderId
+    );
+    if (hasChildFolder) return false;
+    const hasFiles = [...db.files.values()].some(
+      (file) => file.projectId === projectId && file.path.startsWith(`${current.path}/`)
+    );
+    if (hasFiles) return false;
+    db.folders.delete(folderId);
+    return true;
+  },
+
+  async getOpenTabs(projectId: string, userId: string) {
+    const db = getDB();
+    const key = `${projectId}:${userId}`;
+    const existing = db.openTabs.get(key);
+    if (existing) return existing;
+    const created = {
+      id: generateId("tabs"),
+      projectId,
+      userId,
+      filePaths: [],
+      updatedAt: now()
+    };
+    db.openTabs.set(key, created);
+    return created;
+  },
+
+  async saveOpenTabs(projectId: string, userId: string, filePaths: string[]) {
+    const db = getDB();
+    const key = `${projectId}:${userId}`;
+    const next = {
+      id: db.openTabs.get(key)?.id ?? generateId("tabs"),
+      projectId,
+      userId,
+      filePaths,
+      updatedAt: now()
+    };
+    db.openTabs.set(key, next);
+    return next;
   },
 
   async addChatMessage(input: {
@@ -111,7 +239,31 @@ export const memoryRepository: BackendRepository = {
     return db.chats.get(projectId) ?? [];
   },
 
-  async executeTerminalCommand(projectId: string, command: string) {
+  async getOrCreateTerminalSession(projectId: string, userId: string) {
+    const db = getDB();
+    const existing = [...db.terminalSessions.values()].find(
+      (session) => session.projectId === projectId && session.userId === userId
+    );
+    if (existing) return existing;
+    const createdAt = now();
+    const session = {
+      id: generateId("tsess"),
+      projectId,
+      userId,
+      title: "Default Terminal",
+      createdAt,
+      updatedAt: createdAt
+    };
+    db.terminalSessions.set(session.id, session);
+    return session;
+  },
+
+  async getTerminalSession(sessionId: string) {
+    const db = getDB();
+    return db.terminalSessions.get(sessionId) ?? null;
+  },
+
+  async executeTerminalCommand(sessionId: string, projectId: string, userId: string, command: string) {
     const db = getDB();
     let output = `Executed: ${command}\n`;
     let status: "completed" | "failed" = "completed";
@@ -122,22 +274,224 @@ export const memoryRepository: BackendRepository = {
       output += "Blocked unsafe command.\n";
     } else output += "Command finished.\n";
 
+    const list = db.terminalRuns.get(projectId) ?? [];
+    const nextSequence =
+      list.filter((item) => item.sessionId === sessionId && item.userId === userId).length + 1;
     const run = {
       id: generateId("term"),
+      sessionId,
+      userId,
       projectId,
       command,
       output,
+      eventType: "output" as const,
+      sequence: nextSequence,
       status,
       executedAt: now()
     };
-    const list = db.terminalRuns.get(projectId) ?? [];
     list.push(run);
     db.terminalRuns.set(projectId, list);
+    const session = db.terminalSessions.get(sessionId);
+    if (session) {
+      db.terminalSessions.set(sessionId, { ...session, updatedAt: now() });
+    }
     return run;
   },
 
-  async listTerminalHistory(projectId: string) {
+  async listTerminalHistory(projectId: string, userId: string, sessionId?: string) {
     const db = getDB();
-    return db.terminalRuns.get(projectId) ?? [];
+    return (db.terminalRuns.get(projectId) ?? []).filter(
+      (run) => run.userId === userId && (sessionId ? run.sessionId === sessionId : true)
+    );
+  },
+
+  async connectGithub(input) {
+    const db = getDB();
+    const key = `${input.projectId}:${input.userId}`;
+    const existing = db.gitIntegrations.get(key);
+    const nowAt = now();
+    const next = {
+      id: existing?.id ?? generateId("git"),
+      projectId: input.projectId,
+      userId: input.userId,
+      provider: "github" as const,
+      accountLogin: input.accountLogin,
+      accessTokenMasked: `${input.token.slice(0, 4)}***`,
+      repoOwner: existing?.repoOwner,
+      repoName: existing?.repoName,
+      defaultBranch: existing?.defaultBranch,
+      connectedAt: existing?.connectedAt ?? nowAt,
+      updatedAt: nowAt
+    };
+    db.gitIntegrations.set(key, next);
+    return next;
+  },
+
+  async setGithubRepo(input) {
+    const db = getDB();
+    const key = `${input.projectId}:${input.userId}`;
+    const existing = db.gitIntegrations.get(key);
+    if (!existing) return null;
+    const next = {
+      ...existing,
+      repoOwner: input.owner,
+      repoName: input.repo,
+      defaultBranch: input.defaultBranch,
+      updatedAt: now()
+    };
+    db.gitIntegrations.set(key, next);
+    return next;
+  },
+
+  async getGithubIntegration(projectId: string, userId: string) {
+    const db = getDB();
+    return db.gitIntegrations.get(`${projectId}:${userId}`) ?? null;
+  },
+
+  async queueGitSyncJob(input) {
+    const db = getDB();
+    const job = {
+      id: generateId("gjob"),
+      projectId: input.projectId,
+      userId: input.userId,
+      type: input.type,
+      status: "completed" as const,
+      summary: input.summary,
+      createdAt: now()
+    };
+    const list = db.gitSyncJobs.get(`${input.projectId}:${input.userId}`) ?? [];
+    list.unshift(job);
+    db.gitSyncJobs.set(`${input.projectId}:${input.userId}`, list);
+    return job;
+  },
+
+  async listGitSyncJobs(projectId: string, userId: string) {
+    const db = getDB();
+    return db.gitSyncJobs.get(`${projectId}:${userId}`) ?? [];
+  },
+
+  async listExtensionRegistry() {
+    const db = getDB();
+    return [...db.extensionRegistry.values()];
+  },
+
+  async listProjectExtensions(projectId: string, userId: string) {
+    const db = getDB();
+    return [...db.projectExtensions.values()].filter(
+      (ext) => ext.projectId === projectId && ext.userId === userId
+    );
+  },
+
+  async installProjectExtension(input) {
+    const db = getDB();
+    const nowAt = now();
+    const key = `${input.projectId}:${input.userId}:${input.extensionId}`;
+    const existing = db.projectExtensions.get(key);
+    const next = {
+      id: existing?.id ?? generateId("pext"),
+      projectId: input.projectId,
+      userId: input.userId,
+      extensionId: input.extensionId,
+      enabled: true,
+      config: input.config ?? {},
+      installedAt: existing?.installedAt ?? nowAt,
+      updatedAt: nowAt
+    };
+    db.projectExtensions.set(key, next);
+    return next;
+  },
+
+  async updateProjectExtension(projectId: string, userId: string, extensionId: string, updates) {
+    const db = getDB();
+    const key = `${projectId}:${userId}:${extensionId}`;
+    const existing = db.projectExtensions.get(key);
+    if (!existing) return null;
+    const next = {
+      ...existing,
+      ...(updates.enabled !== undefined ? { enabled: updates.enabled } : {}),
+      ...(updates.config !== undefined ? { config: updates.config } : {}),
+      updatedAt: now()
+    };
+    db.projectExtensions.set(key, next);
+    return next;
+  },
+
+  async uninstallProjectExtension(projectId: string, userId: string, extensionId: string) {
+    const db = getDB();
+    return db.projectExtensions.delete(`${projectId}:${userId}:${extensionId}`);
+  },
+
+  async getUserSettings(userId: string) {
+    const db = getDB();
+    const existing = db.userSettings.get(userId);
+    if (existing) return existing;
+    const created = {
+      id: generateId("uset"),
+      userId,
+      editor: {
+        theme: "dark",
+        fontSize: 14,
+        tabSize: 2,
+        autoSave: true
+      },
+      updatedAt: now()
+    };
+    db.userSettings.set(userId, created);
+    return created;
+  },
+
+  async saveUserSettings(userId: string, editor) {
+    const db = getDB();
+    const existing = await this.getUserSettings(userId);
+    const next = { ...existing, editor, updatedAt: now() };
+    db.userSettings.set(userId, next);
+    return next;
+  },
+
+  async getWorkspaceSettings(projectId: string, userId: string) {
+    const db = getDB();
+    const key = `${projectId}:${userId}`;
+    const existing = db.workspaceSettings.get(key);
+    if (existing) return existing;
+    const created = {
+      id: generateId("wset"),
+      projectId,
+      userId,
+      editorOverrides: {},
+      updatedAt: now()
+    };
+    db.workspaceSettings.set(key, created);
+    return created;
+  },
+
+  async saveWorkspaceSettings(projectId: string, userId: string, editorOverrides) {
+    const db = getDB();
+    const key = `${projectId}:${userId}`;
+    const existing = await this.getWorkspaceSettings(projectId, userId);
+    const next = { ...existing, editorOverrides, updatedAt: now() };
+    db.workspaceSettings.set(key, next);
+    return next;
+  },
+
+  async addAuditLog(input) {
+    const db = getDB();
+    const log = {
+      id: generateId("audit"),
+      userId: input.userId,
+      action: input.action,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      metadata: input.metadata,
+      createdAt: now()
+    };
+    const list = db.auditLogs.get(input.userId) ?? [];
+    list.unshift(log);
+    db.auditLogs.set(input.userId, list);
+    return log;
+  },
+
+  async listAuditLogs(userId: string, limit = 50) {
+    const db = getDB();
+    return (db.auditLogs.get(userId) ?? []).slice(0, limit);
   }
 };

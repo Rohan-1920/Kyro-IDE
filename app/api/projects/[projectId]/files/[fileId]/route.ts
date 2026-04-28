@@ -3,6 +3,8 @@ import {
   getProjectFile,
   updateProjectFile
 } from "@/lib/server/services/file-service";
+import { getProject } from "@/lib/server/services/project-service";
+import { getAuthenticatedUserId } from "@/lib/server/utils/auth";
 import { fail, handleRouteError, ok } from "@/lib/server/utils/http";
 import { generateId } from "@/lib/server/utils/id";
 import { logger } from "@/lib/server/utils/logger";
@@ -14,7 +16,11 @@ export async function GET(
 ) {
   const requestId = generateId("req");
   try {
+    const userId = await getAuthenticatedUserId();
     const { projectId, fileId } = await params;
+    const project = await getProject(projectId);
+    if (!project) return fail("Project not found.", 404, "PROJECT_NOT_FOUND", undefined, requestId);
+    if (project.userId !== userId) return fail("Forbidden.", 403, "FORBIDDEN", undefined, requestId);
     const file = await getProjectFile(projectId, fileId);
     if (!file) return fail("File not found.", 404, "FILE_NOT_FOUND", undefined, requestId);
     return ok(file, 200, "FILE_FETCHED", requestId);
@@ -29,7 +35,11 @@ export async function PATCH(
 ) {
   const requestId = generateId("req");
   try {
+    const userId = await getAuthenticatedUserId();
     const { projectId, fileId } = await params;
+    const project = await getProject(projectId);
+    if (!project) return fail("Project not found.", 404, "PROJECT_NOT_FOUND", undefined, requestId);
+    if (project.userId !== userId) return fail("Forbidden.", 403, "FORBIDDEN", undefined, requestId);
     const body = await parseJsonBody<Record<string, unknown>>(request);
 
     const updated = await updateProjectFile(projectId, fileId, {
@@ -59,7 +69,11 @@ export async function DELETE(
 ) {
   const requestId = generateId("req");
   try {
+    const userId = await getAuthenticatedUserId();
     const { projectId, fileId } = await params;
+    const project = await getProject(projectId);
+    if (!project) return fail("Project not found.", 404, "PROJECT_NOT_FOUND", undefined, requestId);
+    if (project.userId !== userId) return fail("Forbidden.", 403, "FORBIDDEN", undefined, requestId);
     const deleted = await deleteProjectFile(projectId, fileId);
     if (!deleted) return fail("File not found.", 404, "FILE_NOT_FOUND", undefined, requestId);
 
