@@ -42,6 +42,11 @@ export interface ProjectRepository {
   listProjects(userId: string): Promise<ProjectRecord[]>;
   createProject(input: CreateProjectInput): Promise<ProjectRecord>;
   getProject(projectId: string): Promise<ProjectRecord | null>;
+  updateProject(
+    projectId: string,
+    updates: Partial<{ name: string; description?: string }>
+  ): Promise<ProjectRecord | null>;
+  deleteProject(projectId: string): Promise<boolean>;
 }
 
 export interface UserRepository {
@@ -100,10 +105,24 @@ export interface ChatRepository {
 }
 
 export interface TerminalRepository {
+  listTerminalSessions(projectId: string, userId: string): Promise<TerminalSessionRecord[]>;
+  createTerminalSession(projectId: string, userId: string, title?: string): Promise<TerminalSessionRecord>;
+  updateTerminalSession(sessionId: string, userId: string, title: string): Promise<TerminalSessionRecord | null>;
+  deleteTerminalSession(sessionId: string, userId: string): Promise<boolean>;
   getOrCreateTerminalSession(projectId: string, userId: string): Promise<TerminalSessionRecord>;
   getTerminalSession(sessionId: string): Promise<TerminalSessionRecord | null>;
   executeTerminalCommand(sessionId: string, projectId: string, userId: string, command: string): Promise<TerminalExecution>;
-  listTerminalHistory(projectId: string, userId: string, sessionId?: string): Promise<TerminalExecution[]>;
+  listTerminalHistory(
+    projectId: string,
+    userId: string,
+    options?: {
+      sessionId?: string;
+      status?: "completed" | "failed";
+      q?: string;
+      limit?: number;
+      cursor?: string;
+    }
+  ): Promise<TerminalExecution[]>;
 }
 
 export interface GitRepository {
@@ -167,7 +186,17 @@ export interface AuditRepository {
     resourceId: string;
     metadata?: unknown;
   }): Promise<AuditLogRecord>;
-  listAuditLogs(userId: string, limit?: number): Promise<AuditLogRecord[]>;
+  listAuditLogs(
+    userId: string,
+    options?: {
+      limit?: number;
+      query?: string;
+      actionPrefix?: string;
+      from?: string;
+      to?: string;
+      cursor?: string;
+    }
+  ): Promise<AuditLogRecord[]>;
 }
 
 export type BackendRepository = UserRepository &

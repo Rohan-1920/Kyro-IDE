@@ -7,6 +7,15 @@ const menuItems = ["File", "Edit", "Selection", "View", "Go", "Run", "Terminal",
 
 type TopNavbarProps = {
   onCommand: (command: string) => void;
+  authState?: "authenticated" | "unauthenticated" | "loading";
+  userName?: string;
+  onAuthAction?: () => void;
+  projects?: Array<{ id: string; name: string }>;
+  activeProjectId?: string;
+  onSelectProject?: (projectId: string) => void;
+  onCreateProject?: () => void;
+  onRenameProject?: () => void;
+  onDeleteProject?: () => void;
 };
 
 const commandItems = [
@@ -17,7 +26,18 @@ const commandItems = [
   { id: "runCode", label: "Run Current File", shortcut: "Ctrl+Enter" }
 ];
 
-export function TopNavbar({ onCommand }: TopNavbarProps) {
+export function TopNavbar({
+  onCommand,
+  authState = "loading",
+  userName,
+  onAuthAction,
+  projects = [],
+  activeProjectId,
+  onSelectProject,
+  onCreateProject,
+  onRenameProject,
+  onDeleteProject
+}: TopNavbarProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const filteredCommands = useMemo(
@@ -48,6 +68,22 @@ export function TopNavbar({ onCommand }: TopNavbarProps) {
             </button>
           ))}
         </nav>
+        <div className="ml-2 mr-1 flex items-center gap-1 border-l border-[var(--ide-border)] pl-2">
+          <select
+            value={activeProjectId ?? ""}
+            onChange={(e) => onSelectProject?.(e.target.value)}
+            className="h-7 rounded border border-[var(--ide-border)] bg-[var(--ide-panel-2)] px-2 text-[11px] text-[var(--ide-text)] outline-none"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <button onClick={onCreateProject} className="rounded bg-[var(--ide-panel-2)] px-2 py-1 text-[10px]">+</button>
+          <button onClick={onRenameProject} className="rounded bg-[var(--ide-panel-2)] px-2 py-1 text-[10px]">R</button>
+          <button onClick={onDeleteProject} className="rounded bg-[var(--ide-panel-2)] px-2 py-1 text-[10px]">D</button>
+        </div>
 
         <div className="flex flex-1 items-center justify-center px-4">
           <button
@@ -66,9 +102,23 @@ export function TopNavbar({ onCommand }: TopNavbarProps) {
           >
             Run
           </button>
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4ec9b0]" />
-          <button className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--ide-accent)] text-[10px] font-bold text-white">
-            U
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              authState === "authenticated" ? "bg-[#4ec9b0]" : authState === "loading" ? "bg-[#e2c08d]" : "bg-[#f44747]"
+            }`}
+            title={authState}
+          />
+          <button
+            onClick={onAuthAction}
+            className="rounded border border-[var(--ide-border)] bg-[var(--ide-panel-2)] px-2.5 py-1 text-[11px] text-[var(--ide-text)] hover:bg-[#31313a]"
+          >
+            {authState === "authenticated" ? "Logout" : authState === "loading" ? "Checking..." : "Login"}
+          </button>
+          <button
+            className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--ide-accent)] px-2 text-[10px] font-bold text-white"
+            title={userName ?? "Guest"}
+          >
+            {(userName ?? "G").slice(0, 1).toUpperCase()}
           </button>
         </div>
       </header>

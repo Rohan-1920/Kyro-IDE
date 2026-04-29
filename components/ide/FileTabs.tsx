@@ -21,7 +21,7 @@ export function FileTabs({ tabs, onSelectTab, onCloseTab }: FileTabsProps) {
     <div className="flex items-end gap-0 overflow-x-auto border-b border-white/[0.07] bg-[#0e0e10]">
       {tabs.map((tab) => (
         <button
-          key={tab.name}
+          key={tab.fileId ?? tab.path ?? tab.name}
           onClick={() => onSelectTab?.(tab.path)}
           className={`group relative flex cursor-pointer items-center gap-1.5 border-r border-white/[0.06] px-3.5 py-2 text-[12px] transition-colors ${
             tab.active

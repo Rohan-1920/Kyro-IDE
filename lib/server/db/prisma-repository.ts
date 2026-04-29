@@ -43,6 +43,20 @@ export async function createPrismaRepository(): Promise<BackendRepository> {
       async getProject(projectId) {
         return prisma.project.findUnique({ where: { id: projectId } }) as unknown as Awaited<ReturnType<BackendRepository["getProject"]>>;
       },
+      async updateProject(projectId, updates) {
+        const existing = await prisma.project.findUnique({ where: { id: projectId } });
+        if (!existing) return null;
+        return prisma.project.update({
+          where: { id: projectId },
+          data: updates
+        }) as unknown as Awaited<ReturnType<BackendRepository["updateProject"]>>;
+      },
+      async deleteProject(projectId) {
+        const existing = await prisma.project.findUnique({ where: { id: projectId } });
+        if (!existing) return false;
+        await prisma.project.delete({ where: { id: projectId } });
+        return true;
+      },
       async listProjectFiles(projectId) {
         return prisma.projectFile.findMany({ where: { projectId } }) as unknown as Awaited<ReturnType<BackendRepository["listProjectFiles"]>>;
       },
@@ -128,6 +142,32 @@ export async function createPrismaRepository(): Promise<BackendRepository> {
           orderBy: { createdAt: "asc" }
         }) as unknown as Awaited<ReturnType<BackendRepository["listChatMessages"]>>;
       },
+      async listTerminalSessions(projectId, userId) {
+        return (prisma as any).terminalSession.findMany({
+          where: { projectId, userId },
+          orderBy: { updatedAt: "desc" }
+        }) as Awaited<ReturnType<BackendRepository["listTerminalSessions"]>>;
+      },
+      async createTerminalSession(projectId, userId, title) {
+        return (prisma as any).terminalSession.create({
+          data: { projectId, userId, title: title?.trim() ? title.trim() : "Terminal" }
+        }) as Awaited<ReturnType<BackendRepository["createTerminalSession"]>>;
+      },
+      async updateTerminalSession(sessionId, userId, title) {
+        const existing = await (prisma as any).terminalSession.findUnique({ where: { id: sessionId } });
+        if (!existing || existing.userId !== userId) return null;
+        return (prisma as any).terminalSession.update({
+          where: { id: sessionId },
+          data: { title: title.trim() }
+        }) as Awaited<ReturnType<BackendRepository["updateTerminalSession"]>>;
+      },
+      async deleteTerminalSession(sessionId, userId) {
+        const existing = await (prisma as any).terminalSession.findUnique({ where: { id: sessionId } });
+        if (!existing || existing.userId !== userId) return false;
+        await (prisma as any).terminalExecution.deleteMany({ where: { sessionId } });
+        await (prisma as any).terminalSession.delete({ where: { id: sessionId } });
+        return true;
+      },
       async getOrCreateTerminalSession(projectId, userId) {
         const existing = await (prisma as any).terminalSession.findFirst({
           where: { projectId, userId }
@@ -159,10 +199,23 @@ export async function createPrismaRepository(): Promise<BackendRepository> {
           }
         }) as unknown as Awaited<ReturnType<BackendRepository["executeTerminalCommand"]>>;
       },
-      async listTerminalHistory(projectId, userId, sessionId) {
+      async listTerminalHistory(projectId, userId, options) {
+        const where: Record<string, unknown> = { projectId, userId };
+        if (options?.sessionId) where.sessionId = options.sessionId;
+        if (options?.status) where.status = options.status;
+        if (options?.q) {
+          where.OR = [
+            { command: { contains: options.q, mode: "insensitive" } },
+            { output: { contains: options.q, mode: "insensitive" } }
+          ];
+        }
+        if (options?.cursor) {
+          where.executedAt = { lt: new Date(options.cursor) };
+        }
         return prisma.terminalExecution.findMany({
-          where: { projectId, userId, ...(sessionId ? { sessionId } : {}) },
-          orderBy: { sequence: "asc" }
+          where,
+          orderBy: [{ executedAt: "desc" }, { sequence: "desc" }],
+          take: options?.limit ?? 60
         }) as unknown as Awaited<ReturnType<BackendRepository["listTerminalHistory"]>>;
       },
       async connectGithub(input) {
@@ -313,9 +366,28 @@ export async function createPrismaRepository(): Promise<BackendRepository> {
           data: input
         }) as Awaited<ReturnType<BackendRepository["addAuditLog"]>>;
       },
-      async listAuditLogs(userId, limit = 50) {
+      async listAuditLogs(userId, options) {
+        const limit = options?.limit ?? 50;
+        const where: Record<string, unknown> = { userId };
+        if (options?.actionPrefix) {
+          where.action = { startsWith: options.actionPrefix };
+        }
+        if (options?.query) {
+          where.OR = [
+            { action: { contains: options.query, mode: "insensitive" } },
+            { resourceType: { contains: options.query, mode: "insensitive" } },
+            { resourceId: { contains: options.query, mode: "insensitive" } }
+          ];
+        }
+        if (options?.from || options?.to || options?.cursor) {
+          const createdAt: Record<string, Date> = {};
+          if (options.from) createdAt.gte = new Date(options.from);
+          if (options.to) createdAt.lte = new Date(options.to);
+          if (options.cursor) createdAt.lt = new Date(options.cursor);
+          where.createdAt = createdAt;
+        }
         return (prisma as any).auditLog.findMany({
-          where: { userId },
+          where,
           orderBy: { createdAt: "desc" },
           take: limit
         }) as Awaited<ReturnType<BackendRepository["listAuditLogs"]>>;

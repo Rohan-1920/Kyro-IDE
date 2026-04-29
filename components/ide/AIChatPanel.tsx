@@ -10,6 +10,7 @@ type AIChatPanelProps = {
   messages: ChatMessage[];
   input: string;
   isTyping: boolean;
+  desktopWidth?: number;
   onInputChange: (value: string) => void;
   onClose: () => void;
   onSend: () => void;
@@ -64,6 +65,7 @@ export function AIChatPanel({
   messages,
   input,
   isTyping,
+  desktopWidth = 340,
   onInputChange,
   onClose,
   onSend,
@@ -128,6 +130,11 @@ export function AIChatPanel({
 
       {/* ── Messages ── */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        {messages.length === 0 && (
+          <div className="rounded border border-dashed border-[var(--ide-border)] p-4 text-[11px] text-[var(--ide-muted)]">
+            Start a new conversation with Coder AI.
+          </div>
+        )}
         {messages.map((msg, i) => (
           <motion.div
             key={i}
@@ -226,7 +233,7 @@ export function AIChatPanel({
   return (
     <>
       {/* Static panel on xl */}
-      <div className="hidden h-full xl:flex xl:flex-col" style={{ width: 340 }}>
+      <div className="hidden h-full xl:flex xl:flex-col" style={{ width: desktopWidth }}>
         {panelContent}
       </div>
 

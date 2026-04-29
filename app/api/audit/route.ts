@@ -12,7 +12,23 @@ export async function GET(request: Request) {
     if (!rate.allowed) return fail("Rate limit exceeded.", 429, "RATE_LIMITED", rate, requestId);
     const { searchParams } = new URL(request.url);
     const limit = Number(searchParams.get("limit") ?? "50");
-    return ok(await listAuditLogs(userId, Number.isFinite(limit) ? limit : 50), 200, "AUDIT_LOGS_FETCHED", requestId);
+    const query = searchParams.get("q") ?? undefined;
+    const actionPrefix = searchParams.get("actionPrefix") ?? undefined;
+    const from = searchParams.get("from") ?? undefined;
+    const to = searchParams.get("to") ?? undefined;
+    const cursor = searchParams.get("cursor") ?? undefined;
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, limit)) : 50;
+
+    const logs = await listAuditLogs(userId, {
+      limit: safeLimit,
+      query,
+      actionPrefix,
+      from,
+      to,
+      cursor
+    });
+    const nextCursor = logs.length >= safeLimit ? logs[logs.length - 1]?.createdAt : null;
+    return ok({ items: logs, nextCursor }, 200, "AUDIT_LOGS_FETCHED", requestId);
   } catch (err) {
     return handleRouteError(err, { route: "/api/audit", requestId });
   }

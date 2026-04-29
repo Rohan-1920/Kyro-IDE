@@ -59,6 +59,39 @@ export const memoryRepository: BackendRepository = {
     return db.projects.get(projectId) ?? null;
   },
 
+  async updateProject(projectId: string, updates) {
+    const db = getDB();
+    const current = db.projects.get(projectId);
+    if (!current) return null;
+    const next = {
+      ...current,
+      ...(updates.name !== undefined ? { name: updates.name.trim() } : {}),
+      ...(updates.description !== undefined ? { description: updates.description?.trim() } : {}),
+      updatedAt: now()
+    };
+    db.projects.set(projectId, next);
+    return next;
+  },
+
+  async deleteProject(projectId: string) {
+    const db = getDB();
+    const exists = db.projects.has(projectId);
+    if (!exists) return false;
+    db.projects.delete(projectId);
+    for (const [fileId, file] of [...db.files.entries()]) {
+      if (file.projectId === projectId) {
+        db.files.delete(fileId);
+        db.fileVersions.delete(fileId);
+      }
+    }
+    for (const [folderId, folder] of [...db.folders.entries()]) {
+      if (folder.projectId === projectId) db.folders.delete(folderId);
+    }
+    db.chats.delete(projectId);
+    db.terminalRuns.delete(projectId);
+    return true;
+  },
+
   async listProjectFiles(projectId: string) {
     const db = getDB();
     return [...db.files.values()].filter((f) => f.projectId === projectId);
@@ -239,6 +272,50 @@ export const memoryRepository: BackendRepository = {
     return db.chats.get(projectId) ?? [];
   },
 
+  async listTerminalSessions(projectId: string, userId: string) {
+    const db = getDB();
+    return [...db.terminalSessions.values()]
+      .filter((session) => session.projectId === projectId && session.userId === userId)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  },
+
+  async createTerminalSession(projectId: string, userId: string, title?: string) {
+    const db = getDB();
+    const createdAt = now();
+    const session = {
+      id: generateId("tsess"),
+      projectId,
+      userId,
+      title: title?.trim() ? title.trim() : "Terminal",
+      createdAt,
+      updatedAt: createdAt
+    };
+    db.terminalSessions.set(session.id, session);
+    return session;
+  },
+
+  async updateTerminalSession(sessionId: string, userId: string, title: string) {
+    const db = getDB();
+    const session = db.terminalSessions.get(sessionId);
+    if (!session || session.userId !== userId) return null;
+    const next = { ...session, title: title.trim(), updatedAt: now() };
+    db.terminalSessions.set(sessionId, next);
+    return next;
+  },
+
+  async deleteTerminalSession(sessionId: string, userId: string) {
+    const db = getDB();
+    const session = db.terminalSessions.get(sessionId);
+    if (!session || session.userId !== userId) return false;
+    db.terminalSessions.delete(sessionId);
+    const runs = db.terminalRuns.get(session.projectId) ?? [];
+    db.terminalRuns.set(
+      session.projectId,
+      runs.filter((run) => run.sessionId !== sessionId)
+    );
+    return true;
+  },
+
   async getOrCreateTerminalSession(projectId: string, userId: string) {
     const db = getDB();
     const existing = [...db.terminalSessions.values()].find(
@@ -298,11 +375,35 @@ export const memoryRepository: BackendRepository = {
     return run;
   },
 
-  async listTerminalHistory(projectId: string, userId: string, sessionId?: string) {
+  async listTerminalHistory(
+    projectId: string,
+    userId: string,
+    options?: {
+      sessionId?: string;
+      status?: "completed" | "failed";
+      q?: string;
+      limit?: number;
+      cursor?: string;
+    }
+  ) {
     const db = getDB();
-    return (db.terminalRuns.get(projectId) ?? []).filter(
-      (run) => run.userId === userId && (sessionId ? run.sessionId === sessionId : true)
-    );
+    const sessionId = options?.sessionId;
+    const status = options?.status;
+    const q = options?.q?.trim().toLowerCase();
+    const limit = options?.limit ?? 60;
+    const cursorMs = options?.cursor ? Date.parse(options.cursor) : NaN;
+    return (db.terminalRuns.get(projectId) ?? [])
+      .filter((run) => {
+        if (run.userId !== userId) return false;
+        if (sessionId && run.sessionId !== sessionId) return false;
+        if (status && run.status !== status) return false;
+        if (Number.isFinite(cursorMs) && Date.parse(run.executedAt) >= cursorMs) return false;
+        if (!q) return true;
+        return run.command.toLowerCase().includes(q) || run.output.toLowerCase().includes(q);
+      })
+      .sort((a, b) => b.sequence - a.sequence)
+      .slice(0, limit)
+      .sort((a, b) => a.sequence - b.sequence);
   },
 
   async connectGithub(input) {
@@ -490,8 +591,38 @@ export const memoryRepository: BackendRepository = {
     return log;
   },
 
-  async listAuditLogs(userId: string, limit = 50) {
+  async listAuditLogs(
+    userId: string,
+    options?: {
+      limit?: number;
+      query?: string;
+      actionPrefix?: string;
+      from?: string;
+      to?: string;
+      cursor?: string;
+    }
+  ) {
     const db = getDB();
-    return (db.auditLogs.get(userId) ?? []).slice(0, limit);
+    const limit = options?.limit ?? 50;
+    const query = options?.query?.trim().toLowerCase();
+    const actionPrefix = options?.actionPrefix?.trim();
+    const fromMs = options?.from ? Date.parse(options.from) : NaN;
+    const toMs = options?.to ? Date.parse(options.to) : NaN;
+    const cursorMs = options?.cursor ? Date.parse(options.cursor) : NaN;
+
+    return (db.auditLogs.get(userId) ?? [])
+      .filter((log) => {
+        if (actionPrefix && !log.action.startsWith(actionPrefix)) return false;
+        if (Number.isFinite(fromMs) && Date.parse(log.createdAt) < fromMs) return false;
+        if (Number.isFinite(toMs) && Date.parse(log.createdAt) > toMs) return false;
+        if (Number.isFinite(cursorMs) && Date.parse(log.createdAt) >= cursorMs) return false;
+        if (!query) return true;
+        return (
+          log.action.toLowerCase().includes(query) ||
+          log.resourceType.toLowerCase().includes(query) ||
+          log.resourceId.toLowerCase().includes(query)
+        );
+      })
+      .slice(0, limit);
   }
 };

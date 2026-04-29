@@ -17,6 +17,7 @@ export type FileTreeItem = {
 export type TabItem = {
   name: string;
   path?: string;
+  fileId?: string;
   active?: boolean;
   modified?: boolean;
   ext?: string;
@@ -35,6 +36,7 @@ export type SidebarPanel =
 export type TerminalTab = 'terminal' | 'problems' | 'output' | 'debug';
 
 export type CodeFile = {
+  fileId?: string;
   name: string;
   path: string;
   language: "typescript" | "javascript" | "css" | "json" | "markdown";

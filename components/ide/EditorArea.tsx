@@ -2,6 +2,7 @@
 
 import MonacoEditor from "@monaco-editor/react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useEffect } from "react";
 import { learningTips } from "@/lib/ide-data";
 import { FileTabs } from "./FileTabs";
 import type { CodeFile, TabItem } from "@/lib/types";
@@ -9,11 +10,16 @@ import type { CodeFile, TabItem } from "@/lib/types";
 type EditorAreaProps = {
   learningMode: boolean;
   onToggleLearningMode: () => void;
-  activeFile: CodeFile;
+  activeFile: CodeFile | null;
   tabs: TabItem[];
   onSelectTab: (path?: string) => void;
   onCloseTab: (path?: string) => void;
   onCursorChange?: (line: number, column: number) => void;
+  onChangeContent?: (content: string) => void;
+  onSave?: () => void | Promise<void>;
+  fileLoading?: boolean;
+  saveDisabled?: boolean;
+  saving?: boolean;
 };
 
 export function EditorArea({
@@ -23,15 +29,33 @@ export function EditorArea({
   tabs,
   onSelectTab,
   onCloseTab,
-  onCursorChange
+  onCursorChange,
+  onChangeContent,
+  onSave,
+  fileLoading,
+  saveDisabled,
+  saving
 }: EditorAreaProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      if (e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+      if (!saveDisabled && onSave) void onSave();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [saveDisabled, onSave]);
+
+  const pathLabel = activeFile?.path ?? "";
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[var(--ide-bg)]">
       <div className="flex flex-shrink-0 items-center justify-between border-b border-[var(--ide-border)] bg-[var(--ide-panel)] px-3 py-1.5">
         <div className="flex items-center gap-1 text-[11px]">
           <span className="text-[var(--ide-muted)]">workspace</span>
           <span className="text-[var(--ide-muted)]">›</span>
-          <span className="text-[var(--ide-text)]">{activeFile.path}</span>
+          <span className="truncate text-[var(--ide-text)]">{pathLabel || "—"}</span>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -52,8 +76,13 @@ export function EditorArea({
               />
             </button>
           </div>
-          <button className="rounded border border-[var(--ide-border)] px-2 py-[3px] text-[11px] text-[var(--ide-text)] hover:bg-[var(--ide-panel-2)]">
-            Save
+          <button
+            type="button"
+            disabled={saveDisabled || saving || !activeFile}
+            onClick={() => onSave?.()}
+            className="rounded border border-[var(--ide-border)] px-2 py-[3px] text-[11px] text-[var(--ide-text)] hover:bg-[var(--ide-panel-2)] disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save"}
           </button>
           <button className="rounded bg-[var(--ide-accent)] px-2 py-[3px] text-[11px] text-white hover:bg-[#4668e8]">
             Run
@@ -64,19 +93,25 @@ export function EditorArea({
       <FileTabs tabs={tabs} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-w-0 flex-1">
-          <MonacoEditor
-            key={activeFile.path}
-            language={activeFile.language}
-            value={activeFile.content}
-            theme="vs-dark"
-            onMount={(editor) => {
-              onCursorChange?.(1, 1);
-              editor.onDidChangeCursorPosition((e) => {
-                onCursorChange?.(e.position.lineNumber, e.position.column);
-              });
-            }}
-            options={{
+        <div className="relative min-w-0 flex-1">
+          {!activeFile || fileLoading ? (
+            <div className="grid h-full place-items-center text-[12px] text-[var(--ide-muted)]">
+              {fileLoading ? "File load ho rahi hai…" : "Koi file select nahi."}
+            </div>
+          ) : (
+            <MonacoEditor
+              key={activeFile.fileId ?? activeFile.path}
+              language={activeFile.language}
+              value={activeFile.content}
+              theme="vs-dark"
+              onChange={(v) => onChangeContent?.(v ?? "")}
+              onMount={(editor) => {
+                onCursorChange?.(1, 1);
+                editor.onDidChangeCursorPosition((e) => {
+                  onCursorChange?.(e.position.lineNumber, e.position.column);
+                });
+              }}
+              options={{
               minimap: { enabled: true },
               fontSize: 13,
               lineHeight: 21,
@@ -91,7 +126,8 @@ export function EditorArea({
               wordWrap: "on",
               padding: { top: 12, bottom: 12 }
             }}
-          />
+            />
+          )}
         </div>
 
         <AnimatePresence initial={false}>
